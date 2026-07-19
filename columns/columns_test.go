@@ -376,6 +376,14 @@ var _ = Describe("Document", func() {
 			Expect(d.String()).To(Equal("count=3 name=web\n"))
 		})
 
+		It("pads every line of a multi-line value, not only the first", func() {
+			d := columns.New()
+			d.Section("Notes", func(d *columns.Document) {
+				d.Print("line one\nline two\nline three")
+			})
+			Expect(d.String()).To(Equal("  Notes:\n\n    line one\n    line two\n    line three\n"))
+		})
+
 		It("gets a blank line when it follows a heading", func() {
 			d := columns.New()
 			d.Heading("H")
