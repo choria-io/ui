@@ -58,7 +58,20 @@ func toYAML(v any) any {
 		}
 
 		return out
+	case Embeddable:
+		return embedYAML{e: t}
 	default:
 		return v
 	}
+}
+
+// embedYAML defers to an Embeddable's own YAML. It implements goccy's
+// BytesMarshaler, so the marshaller re-parses the value's YAML and splices it in
+// at the correct indentation for its position in the document.
+type embedYAML struct {
+	e Embeddable
+}
+
+func (y embedYAML) MarshalYAML() ([]byte, error) {
+	return y.e.YAML()
 }

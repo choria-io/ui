@@ -6,11 +6,11 @@ package columns
 
 import (
 	"io"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
+
+	"github.com/choria-io/ui/internal/util"
 )
 
 // String renders the Document. By default this is aligned text where every
@@ -41,7 +41,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 // rendering is returned. If Markdown rendering fails, such as when a builder
 // method recorded an error, it falls back to text so no output is lost.
 func (d *Document) render() string {
-	if llmFormatEnabled() {
+	if util.LLMFormatEnabled() {
 		md, err := d.Markdown()
 		if err == nil {
 			return string(md)
@@ -49,22 +49,6 @@ func (d *Document) render() string {
 	}
 
 	return d.renderText()
-}
-
-// llmFormatEnabled reports whether output should default to Markdown because the
-// process is driving an LLM or agent consumer. LLMFORMAT, when set to a value
-// strconv.ParseBool understands, decides outright and overrides everything else.
-// Otherwise CLAUDECODE=1, set by the Claude Code harness, enables it.
-func llmFormatEnabled() bool {
-	v, ok := os.LookupEnv("LLMFORMAT")
-	if ok {
-		on, err := strconv.ParseBool(strings.TrimSpace(v))
-		if err == nil {
-			return on
-		}
-	}
-
-	return strings.TrimSpace(os.Getenv("CLAUDECODE")) == "1"
 }
 
 // visibleRow is a row with its value lines resolved, ready to measure and emit.
@@ -80,7 +64,7 @@ func (d *Document) renderText() string {
 
 	descWidth := 0
 	for _, r := range visible {
-		if r.kind != kindRow {
+		if r.kind != kindRow && r.kind != kindEmbed {
 			continue
 		}
 		if w := runewidth.StringWidth(r.desc); w > descWidth {
@@ -133,6 +117,21 @@ func (d *Document) renderText() string {
 				}
 				b.WriteByte('\n')
 			}
+
+		case kindEmbed:
+			// The embedded block is placed on the lines below the description,
+			// aligned to the value column, since it is generally too wide to sit
+			// beside the description.
+			leftPad := strings.Repeat(" ", margin+r.indent*iw)
+			descField := padLeft(r.desc, descWidth)
+			contPad := strings.Repeat(" ", margin+r.indent*iw+descWidth+len(sep))
+
+			b.WriteString(rtrim(leftPad + descField + ":"))
+			b.WriteByte('\n')
+			for _, ln := range r.lines {
+				b.WriteString(rtrim(contPad + ln))
+				b.WriteByte('\n')
+			}
 		}
 	}
 
@@ -171,10 +170,24 @@ func (d *Document) visibleRows() []visibleRow {
 				}
 			}
 			out = append(out, visibleRow{kind: kindRow, indent: r.indent, desc: r.desc, lines: lines})
+
+		case kindEmbed:
+			lines := trimTrailingBlank(strings.Split(util.Sanitize(r.embed.String()), "\n"))
+			out = append(out, visibleRow{kind: kindEmbed, indent: r.indent, desc: r.desc, lines: lines})
 		}
 	}
 
 	return out
+}
+
+// trimTrailingBlank drops trailing empty lines, such as the one produced by a
+// renderer that ends its output with a newline.
+func trimTrailingBlank(lines []string) []string {
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return lines
 }
 
 // rowLines gathers the display lines for every value on a row in order, using
@@ -204,81 +217,12 @@ func isAllEmpty(lines []string) bool {
 // valueLines sanitizes a display string and splits it into physical lines so
 // each embedded newline becomes a continuation line at the value column.
 func valueLines(s string) []string {
-	s = sanitize(s)
+	s = util.Sanitize(s)
 	if s == "" {
 		return []string{""}
 	}
 
 	return strings.Split(s, "\n")
-}
-
-// sanitize keeps newlines, turns tabs into a single space, removes ANSI escape
-// sequences whole and drops other C0 and C1 control characters, so untrusted
-// values cannot break column alignment or inject terminal escape sequences.
-func sanitize(s string) string {
-	if s == "" {
-		return s
-	}
-
-	rs := []rune(s)
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		switch {
-		case r == 0x1b:
-			i = skipEscape(rs, i)
-		case r == '\n':
-			b.WriteRune(r)
-		case r == '\t':
-			b.WriteByte(' ')
-		case r < 0x20, r >= 0x7f && r < 0xa0:
-			continue
-		default:
-			b.WriteRune(r)
-		}
-	}
-
-	return b.String()
-}
-
-// skipEscape consumes an ANSI escape sequence that begins at rs[i] (an ESC) and
-// returns the index of its final rune, so the caller's loop advances past it. It
-// handles CSI (ESC [ ... final) and OSC (ESC ] ... BEL or ST) sequences and
-// falls back to dropping a two-rune escape.
-func skipEscape(rs []rune, i int) int {
-	n := len(rs)
-	if i+1 >= n {
-		return i
-	}
-
-	switch rs[i+1] {
-	case '[':
-		j := i + 2
-		for j < n && !(rs[j] >= 0x40 && rs[j] <= 0x7e) {
-			j++
-		}
-		if j >= n {
-			return n
-		}
-		return j
-
-	case ']':
-		j := i + 2
-		for j < n {
-			if rs[j] == 0x07 {
-				return j
-			}
-			if rs[j] == 0x1b && j+1 < n && rs[j+1] == '\\' {
-				return j + 1
-			}
-			j++
-		}
-		return n
-
-	default:
-		return i + 1
-	}
 }
 
 // padLeft right-justifies s in a field of the given display-cell width.

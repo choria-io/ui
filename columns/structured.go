@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/choria-io/ui/internal/util"
 )
 
 // omap is an insertion-ordered string-keyed map used to build structured output
@@ -57,12 +59,12 @@ func rowStructured(r row) any {
 func sanitizeRaw(v any) any {
 	switch t := v.(type) {
 	case string:
-		return sanitize(t)
+		return util.Sanitize(t)
 
 	case []string:
 		out := make([]string, len(t))
 		for i, s := range t {
-			out[i] = sanitize(s)
+			out[i] = util.Sanitize(s)
 		}
 
 		return out
@@ -149,6 +151,15 @@ func (d *Document) document() (*omap, error) {
 			}
 
 			if err := insert(stack[len(stack)-1].obj, r.desc, rowStructured(r)); err != nil {
+				return nil, err
+			}
+
+		case kindEmbed:
+			for len(stack) > 1 && stack[len(stack)-1].indent > r.indent {
+				stack = stack[:len(stack)-1]
+			}
+
+			if err := insert(stack[len(stack)-1].obj, r.desc, r.embed); err != nil {
 				return nil, err
 			}
 
