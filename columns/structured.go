@@ -155,6 +155,12 @@ func (d *Document) document() (*omap, error) {
 			}
 
 		case kindEmbed:
+			if r.desc == "" {
+				// A description-less embed has no key to nest under, so like a
+				// free-form line it has no structural effect.
+				continue
+			}
+
 			for len(stack) > 1 && stack[len(stack)-1].indent > r.indent {
 				stack = stack[:len(stack)-1]
 			}

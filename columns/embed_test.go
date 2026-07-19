@@ -101,6 +101,15 @@ Detail:
     - 8
 `
 
+const bareEmbedText = `╭──────────────╮
+│     Nodes    │
+├──────┬───────┤
+│ Name │ Cores │
+├──────┼───────┤
+│ web1 │ 8     │
+╰──────┴───────╯
+`
+
 var _ = Describe("Embedding", func() {
 	build := func() *columns.Document {
 		d := columns.New()
@@ -189,5 +198,55 @@ var _ = Describe("Embedding", func() {
 
 		_, merr := columns.New().Item("X", fakeEmbed{err: boom}).Markdown()
 		Expect(merr).To(MatchError(ContainSubstring("boom")))
+	})
+
+	Describe("Embed", func() {
+		It("adds a description-less block at the current indent", func() {
+			d := columns.New()
+			d.Embed(nodes())
+
+			Expect(d.String()).To(Equal(bareEmbedText))
+		})
+
+		It("omits the Markdown label", func() {
+			md, err := columns.New().Embed(nodes()).Markdown()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(md)).To(HavePrefix("# Nodes\n|"))
+			Expect(string(md)).ToNot(ContainSubstring("**"))
+		})
+
+		It("is ignored by JSON and YAML, like Print", func() {
+			d := columns.New()
+			d.Item("Count", 3)
+			d.Embed(nodes())
+
+			j, err := d.JSON()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(j)).To(Equal("{\n  \"Count\": 3\n}\n"))
+			Expect(string(j)).ToNot(ContainSubstring("Nodes"))
+		})
+
+		It("falls back to Print for a non-Embeddable value", func() {
+			d := columns.New()
+			d.Item("A", "b")
+			d.Embed("just a note")
+
+			Expect(d.String()).To(ContainSubstring("just a note"))
+
+			j, err := d.JSON()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(j)).ToNot(ContainSubstring("just a note"))
+		})
+
+		It("skips a nil Embeddable", func() {
+			d := columns.New()
+			d.Embed((*table.Table)(nil))
+
+			Expect(d.String()).To(Equal(""))
+
+			j, err := d.JSON()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(j)).To(Equal("{}\n"))
+		})
 	})
 })

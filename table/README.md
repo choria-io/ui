@@ -158,6 +158,14 @@ fmt.Print(d.String())
 The same document rendered to JSON or YAML embeds the table's own JSON or YAML at
 the correct indentation.
 
+To embed a table with no description, use `Embed` rather than `Item`. It places
+the table as a standalone block, like the document's `Print`, and is ignored by
+the JSON and YAML renderers since it has no key to nest under.
+
+```go
+d.Embed(t)
+```
+
 ## Notes
 
 - A table with a title but no headers or rows renders as empty output.

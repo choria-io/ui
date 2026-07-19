@@ -87,6 +87,7 @@ between them.
 | `Blank()`                       | An explicit blank line, in addition to the one text output adds after each heading.                  |
 | `Printf(format, args...)`       | Free-form line, indented below the section heading; parsed for `{bold}`; ignored by JSON/YAML.       |
 | `Print(a...)`                   | Like `Printf` but with no format string, so `%` is safe; operands joined like `fmt.Print`.           |
+| `Embed(value)`                  | Embed an `Embeddable` such as a `*Table` with no description; ignored by JSON/YAML like `Print`.     |
 | `Indent()` / `Outdent()`        | Change the indent level. `Outdent` never goes below zero.                                            |
 | `Section(heading, fn)`          | Indented sub-section: indent, add heading, run `fn`, outdent; a blank precedes it unless first.      |
 | `Err()`                         | The first error recorded while building, or nil.                                                     |
@@ -287,6 +288,16 @@ and YAML nest the value's own structured output at the correct indentation, and
 Markdown emits it as a labeled block. The interface is checked structurally, so
 an implementer needs no dependency on this package. A nil `Embeddable` renders as
 an empty value.
+
+Use `Embed` instead of `Item` to add an embeddable with no description, the way
+`Print` adds a free-form line. It renders as a standalone block at the current
+indent in text and Markdown, and, having no key to nest under, is ignored by the
+JSON and YAML renderers.
+
+```go
+d := columns.New()
+d.Embed(t)
+```
 
 ```go
 type Embeddable interface {

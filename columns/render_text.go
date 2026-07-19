@@ -119,6 +119,21 @@ func (d *Document) renderText() string {
 			}
 
 		case kindEmbed:
+			if r.desc == "" {
+				// A description-less embed stands on its own at the current indent,
+				// like a free-form line.
+				pad := r.indent * iw
+				if r.indent > 0 {
+					pad += iw
+				}
+				prefix := strings.Repeat(" ", pad)
+				for _, ln := range r.lines {
+					b.WriteString(rtrim(prefix + ln))
+					b.WriteByte('\n')
+				}
+				break
+			}
+
 			// The embedded block is placed on the lines below the description,
 			// aligned to the value column, since it is generally too wide to sit
 			// beside the description.
