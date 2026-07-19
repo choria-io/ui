@@ -69,7 +69,9 @@ func (d *Document) Markdown() ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			blocks = append(blocks, "- **"+mdInline(r.desc)+":**")
+			if r.desc != "" {
+				blocks = append(blocks, "- **"+mdInline(r.desc)+":**")
+			}
 			block := strings.TrimRight(util.Sanitize(string(md)), "\n")
 			if block != "" {
 				blocks = append(blocks, block)

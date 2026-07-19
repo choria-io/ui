@@ -302,6 +302,26 @@ func (d *Document) Print(a ...any) *Document {
 	return d
 }
 
+// Embed adds an Embeddable, such as a *Table, as a block with no description,
+// the counterpart to Item for content that stands on its own. In text and
+// Markdown the block is placed at the current indent, like Print; the JSON and
+// YAML renderers ignore it, since it has no key to nest under. Use Item when the
+// embedded value should appear in the structured output. A value that is not an
+// Embeddable is added with Print, and a nil Embeddable is skipped.
+func (d *Document) Embed(value any) *Document {
+	e, ok := value.(Embeddable)
+	if !ok {
+		return d.Print(value)
+	}
+	if isNil(e) {
+		return d
+	}
+
+	d.rows = append(d.rows, row{kind: kindEmbed, indent: d.indent, embed: e})
+
+	return d
+}
+
 // Indent increases the indent level for subsequent rows by one. The indent
 // shifts the whole row, including the description column, to the right.
 func (d *Document) Indent() *Document {
