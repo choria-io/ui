@@ -123,15 +123,3 @@ commands:
             {{ if .Flags.staticcheck }}
             ab_say Running staticcheck
             staticcheck ./...
-            {{ end }}
-
-    - name: docs
-      type: parent
-      description: Documentation management
-      aliases: [doc]
-      commands:
-        - name: serve
-          description: Serve docs locally
-          type: exec
-          dir: "{{ AppDir }}/docs"
-          command: hugo serve

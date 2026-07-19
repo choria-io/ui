@@ -250,6 +250,53 @@ The `String`, `Bytes` and `WriteTo` methods render text; the `JSON`, `YAML` and
 `Markdown` methods return bytes and an error, and each has a `Render*` variant
 that writes to an `io.Writer`.
 
+## Embedding a table or sub-document
+
+A value passed to `Item` that satisfies the `Embeddable` interface is nested
+under its description and rendered in whichever format the document is rendered
+to, deferring to the value's own `String`, `Markdown`, `JSON` and `YAML`. A
+`*table.Table` and a `*Document` both satisfy it, so a table or a sub-document
+can be embedded:
+
+```go
+t := table.NewTableWriter("Nodes")
+t.AddHeaders("Name", "Cores")
+t.AddRow("web1", 8)
+
+d := columns.New()
+d.Item("Count", 3)
+d.Item("Detail", t)
+
+fmt.Print(d.String())
+```
+
+```
+     Count: 3
+    Detail:
+            ╭──────────────╮
+            │     Nodes    │
+            ├──────┬───────┤
+            │ Name │ Cores │
+            ├──────┼───────┤
+            │ web1 │ 8     │
+            ╰──────┴───────╯
+```
+
+The text form places the block below the description at the value column; JSON
+and YAML nest the value's own structured output at the correct indentation, and
+Markdown emits it as a labeled block. The interface is checked structurally, so
+an implementer needs no dependency on this package. A nil `Embeddable` renders as
+an empty value.
+
+```go
+type Embeddable interface {
+	String() string
+	Markdown() ([]byte, error)
+	JSON() ([]byte, error)
+	YAML() ([]byte, error)
+}
+```
+
 ## Options
 
 | Option               | Effect                                                                |

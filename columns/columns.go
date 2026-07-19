@@ -70,6 +70,7 @@ const (
 	kindRow
 	kindBlank
 	kindLine
+	kindEmbed
 )
 
 type row struct {
@@ -77,6 +78,7 @@ type row struct {
 	indent int
 	desc   string
 	vals   []Value
+	embed  Embeddable
 }
 
 // New creates an empty Document. See the With* functions for available options.
@@ -109,10 +111,40 @@ func (d *Document) Headingf(format string, args ...any) *Document {
 // Item adds a single description and value. The value is formatted per the rules
 // described on the package; wrap it with a helper such as IBytes or Duration to
 // control the formatting.
+//
+// A value that satisfies Embeddable, such as a *Table, is embedded under the
+// description and rendered in whichever format the Document is rendered to. A nil
+// Embeddable renders as an empty value rather than panicking.
 func (d *Document) Item(desc string, value any) *Document {
+	if e, ok := value.(Embeddable); ok {
+		if isNil(e) {
+			d.rows = append(d.rows, row{kind: kindRow, indent: d.indent, desc: desc, vals: []Value{emptyValue{}}})
+			return d
+		}
+		d.rows = append(d.rows, row{kind: kindEmbed, indent: d.indent, desc: desc, embed: e})
+		return d
+	}
+
 	d.rows = append(d.rows, row{kind: kindRow, indent: d.indent, desc: desc, vals: []Value{toValue(value)}})
 
 	return d
+}
+
+// isNil reports whether v is nil or holds a nil pointer, map, slice, channel,
+// function or interface, so an Embeddable backed by a typed nil is detected
+// before any of its methods are called.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 // ItemIf adds an Item only when cond is true, replacing the common

@@ -4,7 +4,11 @@
 
 package columns
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/choria-io/ui/internal/util"
+)
 
 // styleCodes maps a markup tag name to its SGR (Select Graphic Rendition)
 // parameter. Text values are otherwise stripped of escape sequences, so styling
@@ -115,7 +119,7 @@ func renderMarkup(s string) (ansiText, plainText string) {
 
 	for i := 0; i < len(rs); {
 		if rs[i] == 0x1b {
-			i = skipEscape(rs, i) + 1
+			i = util.SkipEscape(rs, i) + 1
 			continue
 		}
 

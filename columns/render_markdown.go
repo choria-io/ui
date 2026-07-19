@@ -7,6 +7,8 @@ package columns
 import (
 	"io"
 	"strings"
+
+	"github.com/choria-io/ui/internal/util"
 )
 
 // Markdown renders the Document as Markdown. Each heading becomes an ATX heading
@@ -60,6 +62,18 @@ func (d *Document) Markdown() ([]byte, error) {
 				lines = []string{d.opts.emptyText}
 			}
 			list = append(list, mdBullet(r.desc, lines)...)
+
+		case kindEmbed:
+			flushList()
+			md, err := r.embed.Markdown()
+			if err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, "- **"+mdInline(r.desc)+":**")
+			block := strings.TrimRight(util.Sanitize(string(md)), "\n")
+			if block != "" {
+				blocks = append(blocks, block)
+			}
 		}
 	}
 	flushList()

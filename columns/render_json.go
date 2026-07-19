@@ -53,6 +53,8 @@ func encodeJSON(buf *bytes.Buffer, v any, depth int) error {
 		return encodeJSONObject(buf, t, depth)
 	case []any:
 		return encodeJSONArray(buf, t, depth)
+	case Embeddable:
+		return encodeEmbeddedJSON(buf, t, depth)
 	default:
 		b, err := json.Marshal(v)
 		if err != nil {
@@ -62,6 +64,33 @@ func encodeJSON(buf *bytes.Buffer, v any, depth int) error {
 
 		return nil
 	}
+}
+
+// encodeEmbeddedJSON writes an Embeddable's own JSON at the current depth. The
+// value's JSON is generated independently at depth zero, so every line after the
+// first is re-indented to sit correctly beneath its key.
+func encodeEmbeddedJSON(buf *bytes.Buffer, e Embeddable, depth int) error {
+	b, err := e.JSON()
+	if err != nil {
+		return err
+	}
+
+	s := strings.TrimRight(string(b), "\n")
+	if s == "" {
+		buf.WriteString("null")
+		return nil
+	}
+
+	indent := strings.Repeat("  ", depth)
+	for i, ln := range strings.Split(s, "\n") {
+		if i > 0 {
+			buf.WriteByte('\n')
+			buf.WriteString(indent)
+		}
+		buf.WriteString(ln)
+	}
+
+	return nil
 }
 
 func encodeJSONObject(buf *bytes.Buffer, o *omap, depth int) error {
