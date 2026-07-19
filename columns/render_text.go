@@ -95,14 +95,17 @@ func (d *Document) renderText() string {
 			ansi, _ := renderMarkup(r.desc)
 			// Inside a section a free-form line sits one level below the heading
 			// so it reads as part of the section; at the top level it stays at
-			// the left margin.
+			// the left margin. Every physical line is padded, so a multi-line
+			// value stays aligned rather than only its first line.
 			pad := r.indent * iw
 			if r.indent > 0 {
 				pad += iw
 			}
-			b.WriteString(strings.Repeat(" ", pad))
-			b.WriteString(ansi)
-			b.WriteByte('\n')
+			prefix := strings.Repeat(" ", pad)
+			for ln := range strings.SplitSeq(ansi, "\n") {
+				b.WriteString(rtrim(prefix + ln))
+				b.WriteByte('\n')
+			}
 
 		case kindRow:
 			leftPad := strings.Repeat(" ", margin+r.indent*iw)
