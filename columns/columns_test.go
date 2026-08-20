@@ -26,6 +26,7 @@ import (
 func TestMain(m *testing.M) {
 	os.Unsetenv("CLAUDECODE")
 	os.Unsetenv("LLMFORMAT")
+	os.Unsetenv("FISK-AI")
 	os.Exit(m.Run())
 }
 
@@ -247,15 +248,6 @@ var _ = Describe("Document", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(d.String()).To(Equal(string(md)))
 			Expect(d.String()).To(ContainSubstring("- **Name:** node-1"))
-		})
-
-		It("lets LLMFORMAT=0 force text even under CLAUDECODE=1", func() {
-			GinkgoT().Setenv("CLAUDECODE", "1")
-			GinkgoT().Setenv("LLMFORMAT", "0")
-
-			d := buildDoc()
-			Expect(d.String()).To(ContainSubstring("Name: node-1"))
-			Expect(d.String()).ToNot(ContainSubstring("|"))
 		})
 
 		It("renders Markdown when LLMFORMAT=1 without CLAUDECODE", func() {

@@ -10,18 +10,23 @@ import (
 	"strings"
 )
 
+// booleans that triggers LLM Format output
+var llmFormatBools = []string{"LLMFORMAT", "FISK-AI", "CLAUDECODE"}
+
 // LLMFormatEnabled reports whether output should default to Markdown because the
 // process is driving an LLM or agent consumer. LLMFORMAT, when set to a value
 // strconv.ParseBool understands, decides outright and overrides everything else.
 // Otherwise CLAUDECODE=1, set by the Claude Code harness, enables it.
 func LLMFormatEnabled() bool {
-	v, ok := os.LookupEnv("LLMFORMAT")
-	if ok {
-		on, err := strconv.ParseBool(strings.TrimSpace(v))
-		if err == nil {
-			return on
+	for _, ev := range llmFormatBools {
+		v, ok := os.LookupEnv(ev)
+		if ok {
+			on, err := strconv.ParseBool(strings.TrimSpace(v))
+			if err == nil && on {
+				return true
+			}
 		}
 	}
 
-	return strings.TrimSpace(os.Getenv("CLAUDECODE")) == "1"
+	return false
 }
