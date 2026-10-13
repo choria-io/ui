@@ -171,18 +171,33 @@ Unfitted this table is 153 cells wide. In an 80 column terminal it renders as:
 | `WrapColumns(width, cols…)` | Wrap the given columns at `width` cells. Columns are numbered from 1, like go-pretty.      |
 | `TerminalWidth()`           | `COLUMNS` when it is a positive integer, else the width of the terminal on stdout, else 0. |
 
-How the width is shared out:
+No column is narrowed below its longest word, header included, so names, paths,
+numbers and commands stay whole and only text wraps, at spaces. A word is a run
+of characters between whitespace; in text such as Chinese or Japanese, which has
+no spaces, a line can also break either side of each character. Footer cells
+count like the other rows.
 
-- Columns whose cells contain spaces are treated as prose and narrowed first,
-  widest first, so paths, numbers and identifiers stay whole. Other columns are
-  only narrowed when the prose columns cannot give up enough.
-- No column is narrowed below the smaller of its content and 10 cells, or its
-  longest header word. When the width is too small for that the table renders
-  wider than asked; content is never truncated.
-- Line breaks already in a cell are kept. A word longer than its column is
-  broken across lines, and a wrapped line loses repeated spaces and indentation.
+Until the table fits, columns are narrowed in this order, each step only as far
+as needed:
+
+1. Columns whose cells cannot wrap, but whose header is wider than the cells,
+   wrap the header at spaces. "Program or parent" above `Program/one` becomes
+   two header lines.
+2. Columns whose cells can wrap are narrowed, widest first, down to 10 cells or
+   their longest word, whichever is wider.
+3. Those columns are narrowed further, down to their longest word.
+
+When the table still does not fit, it renders wider than asked and the terminal
+wraps every line. Words are never broken. That happens when the longest word of
+each column, plus 3 cells per column and 1 for the border, exceeds the width.
+Shorter headers, fewer columns in narrow terminals, or `WrapColumns` on a column
+where breaking words is acceptable avoid it.
+
+- Line breaks already in a cell are kept, and a wrapped line loses repeated
+  spaces and indentation.
 - The title is wrapped at word boundaries to the width of the table.
-- `WrapColumns` limits act as the natural width of those columns when fitting.
+- `WrapColumns` sets a hard width: a word longer than it is broken across
+  lines. Its limit acts as the natural width of those columns when fitting.
 
 Settings are applied when the table renders, so they can be set before or after
 adding rows. `FitWidth` and `FitTerminal` replace each other, the last call
