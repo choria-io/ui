@@ -52,6 +52,9 @@ line reads well when loops and conditionals sit between them.
 | `AddRow(items…)`              | Append a data row.                                                             |
 | `AddSeparator()`              | A horizontal rule in text and Markdown; ignored by JSON and YAML.              |
 | `AddFooter(items…)`           | Set a footer row, typically totals or a summary. Calling it again replaces it. |
+| `FitTerminal()`               | Wrap cells so the text output fits the terminal. See below.                    |
+| `FitWidth(width)`             | Wrap cells so the text output is at most `width` cells wide.                   |
+| `WrapColumns(width, cols…)`   | Wrap the given columns, numbered from 1, at `width` cells.                     |
 
 ## Value formatting
 
@@ -129,6 +132,69 @@ environment); `Markdown`, `JSON` and `YAML` return bytes and an error, and each
 has a `Render*` variant that writes to an `io.Writer`. `Render` is an alias for
 `String` for callers used to go-pretty.
 
+## Fitting the terminal
+
+Long prose in a cell makes a text table wider than the terminal, which then
+breaks every line and garbles the box. `FitTerminal` soft-wraps cells so the
+table fits:
+
+```go
+t := table.NewTableWriter("Refused")
+t.AddHeaders("Target", "Reason", "To get past it")
+t.AddRow("items/auth-rework.md", "the item has landed and cannot be modified without reopening it", "run planboard item reopen auth-rework, then retry the change")
+t.AddRow("project.md", "the sequence would reference a retired item", "remove it from the sequence")
+t.FitTerminal()
+
+fmt.Print(t.Render())
+```
+
+Unfitted this table is 153 cells wide. In an 80 column terminal it renders as:
+
+```
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                    Refused                                   │
+├──────────────────────┬───────────────────────────┬───────────────────────────┤
+│ Target               │ Reason                    │ To get past it            │
+├──────────────────────┼───────────────────────────┼───────────────────────────┤
+│ items/auth-rework.md │ the item has landed and   │ run planboard item reopen │
+│                      │ cannot be modified        │ auth-rework, then retry   │
+│                      │ without reopening it      │ the change                │
+│ project.md           │ the sequence would        │ remove it from the        │
+│                      │ reference a retired item  │ sequence                  │
+╰──────────────────────┴───────────────────────────┴───────────────────────────╯
+```
+
+| Method                      | Purpose                                                                                    |
+|-----------------------------|--------------------------------------------------------------------------------------------|
+| `FitWidth(width)`           | Wrap cells so each line is at most `width` cells wide, borders included. 0 disables it.    |
+| `FitTerminal()`             | `FitWidth` with the width from `TerminalWidth`, read when the table renders.               |
+| `WrapColumns(width, cols…)` | Wrap the given columns at `width` cells. Columns are numbered from 1, like go-pretty.      |
+| `TerminalWidth()`           | `COLUMNS` when it is a positive integer, else the width of the terminal on stdout, else 0. |
+
+How the width is shared out:
+
+- Columns whose cells contain spaces are treated as prose and narrowed first,
+  widest first, so paths, numbers and identifiers stay whole. Other columns are
+  only narrowed when the prose columns cannot give up enough.
+- No column is narrowed below the smaller of its content and 10 cells, or its
+  longest header word. When the width is too small for that the table renders
+  wider than asked; content is never truncated.
+- Line breaks already in a cell are kept. A word longer than its column is
+  broken across lines, and a wrapped line loses repeated spaces and indentation.
+- The title is wrapped at word boundaries to the width of the table.
+- `WrapColumns` limits act as the natural width of those columns when fitting.
+
+Settings are applied when the table renders, so they can be set before or after
+adding rows. `FitWidth` and `FitTerminal` replace each other, the last call
+winning. Only the text output wraps: Markdown, JSON and YAML, including the
+Markdown that `String` returns for an LLM or agent consumer, are unchanged, so a
+Markdown table never gains line breaks in its cells.
+
+`TerminalWidth` honors `COLUMNS` even when output is piped, and otherwise
+measures stdout, returning 0 when stdout is not a terminal so fitting is skipped.
+When the table is written to stderr or a file, or embedded in a document, measure
+or adjust the width yourself and use `FitWidth`.
+
 ## Embedding in a Document
 
 A `*Table` satisfies `columns.Embeddable`, so it can be passed to
@@ -157,6 +223,11 @@ fmt.Print(d.String())
 
 The same document rendered to JSON or YAML embeds the table's own JSON or YAML at
 the correct indentation.
+
+An embedded table is indented by the document, which `FitTerminal` does not know
+about. Subtract the indent instead, `t.FitWidth(table.TerminalWidth() - 12)` in
+the example above. When the width is unknown the result is negative, which
+disables fitting just as 0 does.
 
 To embed a table with no description, use `Embed` rather than `Item`. It places
 the table as a standalone block, like the document's `Print`, and is ignored by
