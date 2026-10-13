@@ -7,6 +7,7 @@ package table
 import (
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -15,8 +16,8 @@ import (
 )
 
 const (
-	// minWrapWidth is the narrowest a column is made by FitWidth, unless its
-	// content is narrower still or a header word is wider.
+	// minWrapWidth is the narrowest FitWidth makes a column whose cells wrap
+	// before it narrows it further, down to its longest word.
 	minWrapWidth = 10
 
 	// rowOverhead and columnOverhead are the cells StyleRounded adds around the
@@ -42,10 +43,10 @@ func TerminalWidth() int {
 }
 
 // WrapColumns soft-wraps the cells of the given columns, numbered from 1 like
-// go-pretty, at width display cells in the text output. Calling it again for a
-// column replaces its width, and a width of 0 or less removes the limit. Column
-// numbers below 1 or beyond the last column are ignored. Markdown, JSON and YAML
-// are unaffected.
+// go-pretty, at width display cells in the text output. A word wider than width
+// is broken across lines. Calling it again for a column replaces its width, and
+// a width of 0 or less removes the limit. Column numbers below 1 or beyond the
+// last column are ignored. Markdown, JSON and YAML are unaffected.
 func (t *Table) WrapColumns(width int, columns ...int) *Table {
 	for _, c := range columns {
 		if c < 1 {
@@ -67,14 +68,15 @@ func (t *Table) WrapColumns(width int, columns ...int) *Table {
 }
 
 // FitWidth soft-wraps cells so each line of the text output is at most width
-// display cells wide, borders included, when that is possible. Columns whose
-// cells contain spaces are narrowed first, widest first, so prose wraps while
-// paths, numbers and identifiers stay whole. No column is narrowed below the
-// smaller of its content and 10 cells, or its longest header word, so a very
-// small width can still produce a wider table; nothing is ever truncated. A
-// width of 0 or less disables fitting. The width is applied when the table is
-// rendered, and Markdown, JSON and YAML are unaffected. FitWidth replaces an
-// earlier FitWidth or FitTerminal.
+// display cells wide, borders included, when that is possible. No column is
+// narrowed below its longest word, header included, so names, paths, numbers
+// and commands stay whole and only text wraps, at spaces. Headers wider than
+// their column's cells wrap first, then columns whose cells can wrap are
+// narrowed, widest first, to 10 cells, and then to their longest word. When
+// that is still too wide the table renders wider than asked; words are never
+// broken. A width of 0 or less disables fitting. The width is applied when the
+// table is rendered, and Markdown, JSON and YAML are unaffected. FitWidth
+// replaces an earlier FitWidth or FitTerminal.
 func (t *Table) FitWidth(width int) *Table {
 	t.fitWidth = width
 	t.fitTerminal = false
@@ -135,9 +137,9 @@ func (t *Table) columnLimits() ([]int, int) {
 		return nil, 0
 	}
 
-	cells := t.textCells()
-	ncols := 0
-	for _, row := range cells {
+	header, body := t.textCells()
+	ncols := len(header)
+	for _, row := range body {
 		ncols = max(ncols, len(row))
 	}
 
@@ -146,17 +148,26 @@ func (t *Table) columnLimits() ([]int, int) {
 	}
 
 	natural := make([]int, ncols)
-	prose := make([]bool, ncols)
-	for _, row := range cells {
+	headerWord := make([]int, ncols)
+	for i, c := range header {
+		natural[i] = text.LongestLineLen(c)
+		headerWord[i] = longestWord(c)
+	}
+
+	bodyWidth := make([]int, ncols)
+	bodyWord := make([]int, ncols)
+	for _, row := range body {
 		for i, c := range row {
-			natural[i] = max(natural[i], text.LongestLineLen(c))
-			if strings.Contains(c, " ") {
-				prose[i] = true
-			}
+			bodyWidth[i] = max(bodyWidth[i], text.LongestLineLen(c))
+			bodyWord[i] = max(bodyWord[i], longestWord(c))
 		}
 	}
 
 	limits := make([]int, ncols)
+	for i := range natural {
+		natural[i] = max(natural[i], bodyWidth[i])
+	}
+
 	widths := slices.Clone(natural)
 	for c, l := range t.wrapWidths {
 		i := c - 1
@@ -170,28 +181,25 @@ func (t *Table) columnLimits() ([]int, int) {
 	}
 
 	if width > 0 {
-		floors := t.columnFloors(widths)
 		available := width - rowOverhead - columnOverhead*ncols
 
-		var proseCols, solidCols []int
-		solidWidth := 0
-		for i := range widths {
-			if prose[i] {
-				proseCols = append(proseCols, i)
-				continue
+		var wrapping, whole []int
+		words := make([]int, ncols)
+		readable := make([]int, ncols)
+		for i, w := range widths {
+			words[i] = min(w, max(bodyWord[i], headerWord[i]))
+			readable[i] = max(words[i], min(w, minWrapWidth))
+
+			if bodyWord[i] < bodyWidth[i] {
+				wrapping = append(wrapping, i)
+			} else {
+				whole = append(whole, i)
 			}
-			solidCols = append(solidCols, i)
-			solidWidth += widths[i]
 		}
 
-		fitColumns(widths, floors, proseCols, available-solidWidth)
-
-		proseWidth := 0
-		for _, i := range proseCols {
-			proseWidth += widths[i]
-		}
-
-		fitColumns(widths, floors, solidCols, available-proseWidth)
+		fitColumns(widths, words, whole, available)
+		fitColumns(widths, readable, wrapping, available)
+		fitColumns(widths, words, wrapping, available)
 
 		for i, w := range widths {
 			if w < natural[i] {
@@ -208,29 +216,18 @@ func (t *Table) columnLimits() ([]int, int) {
 	return limits, rowWidth
 }
 
-// columnFloors is the narrowest each column may be made by FitWidth: its
-// current width when that is below the minimum, else the larger of the minimum
-// and its longest header word.
-func (t *Table) columnFloors(widths []int) []int {
-	floors := make([]int, len(widths))
+// fitColumns narrows the columns listed in cols, never below their floors, so
+// that all the columns together fit available. It finds the largest cap that
+// fits, limits every wider column to it, then hands any cells left over to the
+// capped columns from left to right.
+func fitColumns(widths []int, floors []int, cols []int, available int) {
+	budget := available
 	for i, w := range widths {
-		floor := minWrapWidth
-		if i < len(t.headers) {
-			for _, word := range strings.Fields(cellText(t.headers[i])) {
-				floor = max(floor, text.StringWidthWithoutEscSequences(word))
-			}
+		if !slices.Contains(cols, i) {
+			budget -= w
 		}
-		floors[i] = min(w, floor)
 	}
 
-	return floors
-}
-
-// fitColumns narrows the columns listed in cols so their widths sum to at most
-// budget, never below their floors. It finds the largest cap that fits, limits
-// every wider column to it, then hands any cells left over to the capped
-// columns from left to right.
-func fitColumns(widths []int, floors []int, cols []int, budget int) {
 	total := 0
 	floorTotal := 0
 	widest := 0
@@ -284,36 +281,62 @@ func fitColumns(widths []int, floors []int, cols []int, budget int) {
 	}
 }
 
-// textCells returns the display text of the header, every row and the footer.
-func (t *Table) textCells() [][]string {
-	var cells [][]string
+// textCells returns the display text of the header, and of every row and the
+// footer.
+func (t *Table) textCells() ([]string, [][]string) {
+	var body [][]string
 
-	add := func(row []any) {
-		if len(row) == 0 {
-			return
-		}
-		s := make([]string, len(row))
-		for i, c := range row {
-			s[i] = cellText(c)
-		}
-		cells = append(cells, s)
-	}
-
-	add(t.headers)
 	for _, r := range t.rows {
-		if r.sep {
+		if r.sep || len(r.cells) == 0 {
 			continue
 		}
-		add(r.cells)
+		body = append(body, textRow(r.cells))
 	}
-	add(t.footer)
 
-	return cells
+	if len(t.footer) > 0 {
+		body = append(body, textRow(t.footer))
+	}
+
+	return textRow(t.headers), body
+}
+
+// textRow returns the display text of each cell in row.
+func textRow(row []any) []string {
+	s := make([]string, len(row))
+	for i, c := range row {
+		s[i] = cellText(c)
+	}
+
+	return s
+}
+
+// longestWord is the width of the widest piece of s that wrapLine keeps on one
+// line: a run of runes between whitespace, or a single wide rune.
+func longestWord(s string) int {
+	longest := 0
+	run := 0
+
+	for _, r := range s {
+		w := text.RuneWidth(r)
+
+		switch {
+		case unicode.IsSpace(r):
+			run = 0
+		case w > 1:
+			run = 0
+			longest = max(longest, w)
+		default:
+			run += w
+			longest = max(longest, run)
+		}
+	}
+
+	return longest
 }
 
 // wrapCell soft-wraps each line of s to width display cells, keeping the line
-// breaks already in s. A word longer than width is broken across lines, and
-// wide runes never push a line past width.
+// breaks already in s. Lines that fit are kept as they are, others are wrapped
+// by wrapLine.
 func wrapCell(s string, width int) string {
 	if width <= 0 {
 		return s
@@ -326,12 +349,88 @@ func wrapCell(s string, width int) string {
 			continue
 		}
 
-		for _, l := range strings.Split(text.WrapSoft(line, width), "\n") {
-			out = append(out, breakLine(l, width)...)
-		}
+		out = append(out, wrapLine(line, width)...)
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// wrapLine soft-wraps line to width display cells. It breaks at whitespace,
+// which becomes a single space within a line, and on either side of a wide
+// rune, so text without spaces in scripts such as Chinese and Japanese wraps
+// too. A word wider than width is broken by breakLine, and wide runes never
+// push a line past width.
+func wrapLine(line string, width int) []string {
+	var (
+		out   []string
+		cur   strings.Builder
+		curW  int
+		word  strings.Builder
+		wordW int
+		gap   bool
+	)
+
+	place := func(s string, w int, spaced bool) {
+		sep := 0
+		if spaced && cur.Len() > 0 {
+			sep = 1
+		}
+
+		if curW+sep+w <= width {
+			if sep > 0 {
+				cur.WriteByte(' ')
+			}
+			cur.WriteString(s)
+			curW += sep + w
+			return
+		}
+
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+
+		pieces := breakLine(s, width)
+		last := pieces[len(pieces)-1]
+		out = append(out, pieces[:len(pieces)-1]...)
+		cur.WriteString(last)
+		curW = text.StringWidthWithoutEscSequences(last)
+	}
+
+	flush := func() {
+		if word.Len() == 0 {
+			return
+		}
+		place(word.String(), wordW, gap)
+		word.Reset()
+		wordW = 0
+		gap = false
+	}
+
+	for _, r := range line {
+		w := text.RuneWidth(r)
+
+		switch {
+		case unicode.IsSpace(r):
+			flush()
+			gap = true
+		case w > 1:
+			flush()
+			place(string(r), w, gap)
+			gap = false
+		default:
+			word.WriteRune(r)
+			wordW += w
+		}
+	}
+
+	flush()
+
+	if cur.Len() > 0 || len(out) == 0 {
+		out = append(out, cur.String())
+	}
+
+	return out
 }
 
 // breakLine splits line into pieces of at most width display cells, by rune.
