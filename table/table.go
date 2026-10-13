@@ -16,9 +16,10 @@
 //
 // Cells are formatted the way the columns package formats values (thousands
 // separators for numbers, humanized durations and times) and every cell has
-// terminal escape sequences and control characters stripped. A *Table satisfies
-// the columns.Embeddable interface, so it can be passed to columns.Document.Item
-// to nest a table inside a document.
+// terminal escape sequences and control characters stripped. FitTerminal,
+// FitWidth and WrapColumns soft-wrap long cells in the text output so a table
+// fits the terminal. A *Table satisfies the columns.Embeddable interface, so it
+// can be passed to columns.Document.Item to nest a table inside a document.
 package table
 
 import (
@@ -35,12 +36,16 @@ import (
 
 // Table is an in-memory representation of a table. Build it with AddHeaders,
 // AddRow, AddSeparator and AddFooter, then render it with Render, String, Bytes,
-// WriteTo, JSON, YAML or Markdown. A Table is not safe for concurrent use.
+// WriteTo, JSON, YAML or Markdown. WrapColumns, FitWidth and FitTerminal keep
+// the text output within a width. A Table is not safe for concurrent use.
 type Table struct {
-	title   string
-	headers []any
-	footer  []any
-	rows    []tableRow
+	title       string
+	headers     []any
+	footer      []any
+	rows        []tableRow
+	wrapWidths  map[int]int
+	fitWidth    int
+	fitTerminal bool
 }
 
 type tableRow struct {
@@ -120,7 +125,10 @@ func (t *Table) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (t *Table) renderText() string {
-	s := t.writer().Render()
+	w := t.writer()
+	t.applyWrapping(w)
+
+	s := w.Render()
 	if s == "" {
 		return ""
 	}
@@ -191,6 +199,8 @@ func (t *Table) RenderYAML(w io.Writer) error {
 
 // writer builds a go-pretty writer from the captured model, formatting and
 // sanitizing every cell so untrusted content cannot inject terminal escapes.
+// Column wrapping is added by renderText only, so Markdown cells never gain line
+// breaks.
 func (t *Table) writer() table.Writer {
 	w := table.NewWriter()
 	w.SuppressTrailingSpaces()
@@ -226,10 +236,15 @@ func (t *Table) writer() table.Writer {
 func toRow(cells []any) table.Row {
 	row := make(table.Row, len(cells))
 	for i, c := range cells {
-		row[i] = util.Sanitize(util.Format(c))
+		row[i] = cellText(c)
 	}
 
 	return row
+}
+
+// cellText is the formatted and sanitized display text of a cell.
+func cellText(c any) string {
+	return util.Sanitize(util.Format(c))
 }
 
 // tableDoc is the structured form shared by the JSON and YAML renderers. Both

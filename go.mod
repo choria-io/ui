@@ -9,6 +9,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
+	golang.org/x/term v0.47.0
 )
 
 require (
